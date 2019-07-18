@@ -1,0 +1,686 @@
+---
+title: 'Project: Identifying Type of Decision Maker Based on Psychological Features'
+author: "Julietta Ghazaryan"
+date: "May 2, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+####Introduction
+
+Why should economists be interested in behavioral distortions and cognitive abilities? One of the main and identified aspects of the behavioral sciences is decision making. A decision-making episode occurs whenever the flow of actions is interrupted by a choice between conflicting alternatives. The decision is made when one of the competing alternatives is executed, which leads to a change in the environment and leads to consequences associated with the decision maker. Each of us can make totally different decision for the same particular situation. So, what are the forces affecting the choice? Every decision is made based on the new information (uncertainty), otherwise it becomes the repetition of the past choice. However, there are certain type of cognitive biases affecting human perception. Cognitive biases occur every time when human brain perceives a new message from external environment. By saying new message we mean uncertain information: something totally unfamiliar to decision maker that was not analyzed before. For instance, imagine a consumer who has to buy some specific product and there are two brands of a product to choose. Consumer doesn't have any information about the brands and he/she is not going to ask market sales assistant. Consumer thinks that sales assistant will provide misleading information in order to sell the most expensive product and promote realization of that good. So, how to choose when there is an uncertainty? Some people can recognize the pattern and avoid high level of mistakes while making decisions. This group is defined as reflective. Other people are in a rush and their goal is to solve as many problems as possible in a given amount of time without thinking about the situation carefully. This type of people are defined as impulsive. So, we are going to find and analyze the psychological features and factors that make the person be either reflective or impulsive.
+
+####Data and methodology
+Our data consists of either numeric or categorical variables and is obtained through the individual survey. The questions of survey and their description are introduced below in the appendix part.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readxl)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(MASS)
+library(rattle)
+library(ROCR)
+```
+
+Read data into R. Look into the data.
+```{r echo = TRUE}
+decision<-read_excel("Project_behavioralA.xlsx")
+str(decision)
+```
+
+
+Correcting data types.
+
+```{r echo = TRUE}
+decision$age<-as.numeric(decision$age)
+decision$muspref<-factor(decision$muspref)
+decision$lovecompG<-factor(decision$lovecompG) 
+decision$education<-factor(decision$education)
+decision$gender<-factor(decision$gender)
+decision$love<-factor(decision$love, levels = c("Yes", "No"))
+decision$playcompG<-factor(decision$playcompG)
+decision$socMedia<-factor(decision$socMedia)
+decision$salary<-factor(decision$salary)
+decision$hmtLove<-factor(decision$hmtLove)
+decision$bias<-factor(decision$bias)
+```
+
+
+*Performing some visalizations for initial findings/relationships' detection.*
+Visually there is no much difference (maybe 4 year is important diffrence) in the mean age of people detected as impulsive and people considered as reflective, but the existance of pretty enough outliers for "Reflective" case may have artificially pulled the mean up. We will perform some checkings for influential outliers later in our analysis. 
+(all the other variables not shown in visualizations appeared to be not important).
+```{r}
+ggplot(decision, aes(y=age,x=bias))+
+geom_boxplot()+
+stat_summary(fun.y="mean", geom="point", size=4, col="blue")+
+ggtitle("Boxplot for bias based on age")+
+xlab("Bias")+
+ylab("Age")
+```
+```{r}
+by(decision$age,decision$bias,mean)
+```
+
+
+For all categories of salary reflectives are almost twice as big as impulsives (except for the last category, they are almost the same), so, check for proportionality of data.
+```{r}
+
+df_s <- data.frame(table(decision$bias,decision$salary))
+names(df_s) <- c("bias","salary","Count")
+
+ggplot(data=df_s, aes(x=bias, y=Count, fill=salary)) + geom_bar(stat="identity")+
+  ggtitle("barplot for bias according to salary")
+
+
+```
+
+The same thing as in case of salary.
+
+```{r}
+df_hmtl <- data.frame(table(decision$bias,decision$hmtLove))
+names(df_hmtl) <- c("bias","hmtLove","Count")
+
+ggplot(data=df_hmtl, aes(x=bias, y=Count, fill=hmtLove)) + geom_bar(stat="identity")+
+  ggtitle("barplot for bias according to number of times fallen in Love")
+
+
+```
+
+Both for Impulsives and Reflectives number of female is more than male, which is not mere coincidence, as number of female passed the survey is almost 2 times (actually 1.6) more than number of male, but we can see that among those who are detected as impulsive ratio  of number of female to male is almost 2 times higher than for reflective group (check for balanced data). Among reflectives 40% of all are male, among impulsives 43% are male. 
+```{r}
+table(decision$gender)
+```
+
+```{r}
+
+df <- data.frame(table(decision$bias,decision$gender))
+names(df) <- c("bias","gender","Count")
+
+ggplot(data=df, aes(x=bias, y=Count, fill=gender)) + geom_bar(stat="identity")+
+  ggtitle("barplot for bias according to gender")
+
+
+```
+
+
+Here we can see that concerning being impulsive/reflective there is no difference for respondents, who have graduated from college only or high school as well , done Phd. Those who mentioned to have some other degree of education are all detected as impulsive, and those who have "Bachelor's degree" only or "Master's degree" as well can be considered as important when making assumptions about respondents' attitude, as the number of respondents who mentioned to have bachelor's degree or master's degree as well and are detected to be reflective is at least twice bigger than those detected as impulsive, but it can be a cause of propotionality of data (balanced/imbalanced), let's check it. 
+```{r}
+
+df1 <- data.frame(table(decision$bias,decision$education))
+names(df1) <- c("bias","education","Count")
+
+ggplot(data=df1, aes(x=bias, y=Count, fill=education)) + geom_bar(stat="identity")+
+   ggtitle("barplot for bias according to education")
+```
+Here for those who are reflective all the categories regarding music preference are twice bigger than for impulsive respondents, but we have already detected imbalancy of the data, which most probably is causing this.
+```{r}
+
+df3 <- data.frame(table(decision$bias,decision$muspref))
+names(df3) <- c("bias","muspref","Count")
+
+ggplot(data=df3, aes(x=bias, y=Count, fill=muspref)) + geom_bar(stat="identity")+
+   ggtitle("barplot for bias according to music preferenc")
+```
+
+We clearly see that we have imbalanced data, there are twice as more respondents detected as reflective than we have impulsives. Let's performe some techniques to somehow balance the data and check for their effectivness, Though data is not big, let's perform under-sampling, oversampling and SMOTE techniques (*find the need for balancing and the description of techniques in the report file*).
+
+```{r}
+table(decision$bias)
+```
+
+
+####Apply techniques to balance the data####
+
+Split the data into Train and Test sets and apply logistic regression on.
+As we have multicollinearity caused by including "love" and "hmtLove", "lovecompG" and "playcompG" together in the model, we will take only one variable from each pair (*explanation can be found in the report file *). Let's take "hmtLove" and "playcompG".
+
+```{r include=FALSE}
+decision1<-decision[,-c(2,9)]
+```
+
+Original model (without balancing the data) does better for negative case and have accuracy more than moderate (66%), but as it is lower then no information rate than model's predicting power is low.
+```{r include=FALSE}
+set.seed(42)
+index <- createDataPartition(decision1$bias, p = 0.7, list = FALSE)
+train_data <- decision1[index, ]
+test_data  <- decision1[-index, ]
+
+set.seed(42)
+model_logit_original <- caret::train(bias ~ .,
+                         data = train_data,
+                         method = "glm",
+                         preProcess = c("scale", "center"),
+                         trControl = trainControl(method = "repeatedcv", 
+                                                  number = 10, 
+                                                  repeats = 10, 
+                                                  verboseIter = FALSE))
+
+final <- data.frame(actual = test_data$bias,
+                    predict(model_logit_original, newdata = test_data, type = "prob"))
+
+options(warn=-1)      #turn off warnings (=1 turns on)
+final$predict <- ifelse(final$Reflective > 0.5, "Reflective","Impulsive")
+cm_original <- confusionMatrix(table(final$predict, test_data$bias))
+cm_original
+```
+
+
+####under-sampling#### 
+
+It does way better job for predicting positive case compared to original model (with imbalanced data) as sensitivity is higher and is predicting negative and positive cases almost with the same power, but the accuracy of original model is somewhat higher.This one also has accuracy lower than no information rate.
+
+```{r include=FALSE}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 10, 
+                     repeats = 10, 
+                     verboseIter = FALSE,
+                     sampling = "down")
+
+set.seed(42)
+model_logit_under <- caret::train(bias ~.,
+                         data = train_data,
+                         method = "glm",
+                         preProcess = c("scale", "center"),
+                         trControl = ctrl)
+final_under <- data.frame(actual = test_data$bias,predict(model_logit_under, newdata = test_data, type = "prob"))
+final_under$predict <- ifelse(final_under$Reflective > 0.5, "Reflective","Impulsive")
+cm_under <- confusionMatrix(table(final_under$predict, test_data$bias))
+cm_under
+```
+
+####oversampling#### 
+
+The same thing is here as it is with under-sampling. Accuracy is lower than no information rate (low predicting power,but prediction for negative and positive cases is done with almost the same power).
+```{r include=FALSE}
+ctrl1 <- trainControl(method = "repeatedcv", 
+                     number = 10, 
+                     repeats = 10, 
+                     verboseIter = FALSE,
+                     sampling = "up")
+
+set.seed(42)
+model_logit_over <- caret::train(bias ~.,
+                         data = train_data,
+                         method = "glm",
+                         preProcess = c("scale", "center"),
+                         trControl = ctrl1)
+final_over <- data.frame(actual = test_data$bias,predict(model_logit_over, newdata = test_data, type = "prob"))
+final_over$predict <- ifelse(final_over$Reflective > 0.5, "Reflective","Impulsive")
+cm_over <- confusionMatrix(table(final_over$predict, test_data$bias))
+cm_over
+
+
+```
+
+
+####SMOTE####
+
+Smote is doing better job for predicting "Positive case" (Impulsive) than the original model (without balancing the data) but Accuracy of the original model is a little bit higher.But here we have balancing of data.
+
+```{r include=FALSE}
+
+ctrl3 <- trainControl(method = "repeatedcv", 
+                     number = 10, 
+                     repeats = 10, 
+                     verboseIter = FALSE,
+                     sampling = "smote")
+
+set.seed(42)
+model_logit_smote <- caret::train(bias ~.,
+                         data = train_data,
+                         method = "glm",
+                         preProcess = c("scale", "center"),
+                         trControl = ctrl3)
+final_smote <- data.frame(actual = test_data$bias,predict(model_logit_smote, newdata = test_data, type = "prob"))
+final_smote$predict <- ifelse(final_smote$Reflective > 0.5, "Reflective","Impulsive")
+cm_smote <- confusionMatrix(table(final_smote$predict, test_data$bias))
+cm_smote
+
+```
+
+####Prediction of the above models####
+
+```{r}
+
+models <- list(original = model_logit_original,
+                       under = model_logit_under,
+                       over = model_logit_over,
+                       smote = model_logit_smote)
+                       
+
+
+resampling <- resamples(models)
+bwplot(resampling)
+```
+
+*Detecting variables according to their importance* (from higher to lower) on the model we have detected to be more or less better among the four performed above (not included model with backward selection).
+```{r}
+importance <- varImp(model_logit_original, scale=FALSE)
+# summarize importance
+# plot importance
+print(importance);plot(importance)
+```
+
+####How to choose good logistic model
+The key to a successful logistic regression model is to choose the correct variables to enter into the model. So,to find the best logit model let's do "backward stepwise" regression (where all the factors are initially introduced and then various factors are withdrawn one by one, till the overall prediction does not deteriorate).
+
+
+Stepwise model with caret is giving some results according to each category of each variable. Let's use glm() function to run the full model and perform AIC with backward selection on it.
+
+
+```{r include=FALSE}
+model_full<-glm(bias~., data=decision1, family="binomial")
+```
+
+
+*Best model according to AIC (the lowest AIC)* is when we include only *age*, *gender* and *education* in the model.
+```{r include=FALSE}
+set.seed(1)
+
+model_step<-stepAIC(model_full,direction = "backward")
+summary(model_step)
+```
+
+
+####Feature selection
+
+ *One of the techniques to do appropriate feature selection* is to check the significance of features one by one and include in the model only the ones that are significant when taken alone. Here we can set alpha to be 0.1 and not 0.05.
+ When we have model with "socMedia" (hours spent surfing the Inet) only, variable is (marginally) significant when we take alpha = 0.1 .
+ 
+```{r include=FALSE}
+model_logit_1<-glm(bias~socMedia,data=decision1, family = "binomial")
+summary(model_logit_1)
+
+```
+
+
+*Hours spent on playing computer games* are significant when alpha is 0.1.
+```{r include=FALSE}
+model_2<-glm(bias~playcompG,data=decision1, family = "binomial")
+summary(model_2)
+```
+
+*Age* is significant when taken alone.
+```{r include=FALSE}
+model_3<-glm(bias~age,data=decision, family = "binomial")
+summary(model_3)
+```
+
+*Gender* is significant when taken alone as well.
+```{r include=FALSE}
+model_4<-glm(bias~gender,data=decision, family = "binomial")
+summary(model_4)
+```
+
+*So, when we do one by one detection of significance we get that final model should contain "age", "gender", "socMedia" and "playcompG", others are not significant when taken alone (for alpha = 0.1).*
+
+*Music preference* is not significant for explaining persons' impulsivness when taken alone, BUT when we include it in the model with strongly significant (when alpha is 0.05) variable(s) it becomes significant.
+
+```{r echo=TRUE}
+model_logit_3<-glm(bias~muspref+age+gender,data=decision, family = "binomial")
+summary(model_logit_3)
+```
+
+
+*Salary* alone is not significant but interaction of salary and age is significant.
+```{r echo=TRUE}
+model_logit_interaction1<-glm(bias~salary:age,data=decision, family = "binomial")
+summary(model_logit_interaction1)
+```
+
+We can see it by the plot below. There is an interaction.
+
+```{r}
+
+interaction.plot(x.factor=decision$bias, trace.factor = decision$salary,
+                 response = decision$age,fun=mean,main="Intersection plot",
+                 col=c("red","yellow"))
+```
+
+
+
+
+Create model with only significant variables we've got via one by one checking.
+Only age is still significant. And coefficients have changed their signs here compared to the models, where variables were taken alone. Check for the R^2, whether it is much closer to 1 or not (if yes then too bad).
+```{r echo=TRUE}
+options(scipen = 999)
+
+model_only_sig<-glm(bias~socMedia+age+gender+playcompG, data=decision1, family="binomial")
+summary(model_only_sig)
+
+```
+
+*For logistic regression we can use McFadden's pseudo-R squared .*
+
+*Formula: R2McFadden=1-log(Lc)/log(Lnull)*
+
+R^2 is far to be 1, it speaks about *NO multicollinearity*.
+```{r}
+intercept_only_model <- glm(bias~1,data = decision1, family="binomial")
+
+R2_McFadden<-1-logLik(model_only_sig)/logLik(intercept_only_model)
+R2_McFadden
+```
+
+```{r include=FALSE}
+unique(decision$socMedia)
+```
+
+```{r include=FALSE}
+unique(decision$playcompG)
+```
+
+
+>>>The coefficient shows that person who spends 4-6 hours (10 hours and more,7-9 hours,less than 1 hour) surfing the Inet has 29% less (45% less,19% less,31% more) odds to be impulsive than person who spends 1-3 hours on it. So, we can conclude that on average less we spend on social media more impulsive we tend to be (maybe because of gained information on what is what, and concluding what to buy and what not to). As, for example, when we switch from spending 1-3 hours to spending less than 1 hour on social media, odds ratio of acting impulsive decreases by 1/1.31=0.76 times (it actually increases). So, likelihood of person, who spends less than 1 hour on Soc. Media, to be impulsive is MORE than for person who spends 1-3 hours. 
+
+
+>>>If we change the gender from female to male odds ration decreases by 1/1.54=0.64 times (it means increases). So, for male likelihood of being impulsive is more than for female. 
+
+>>>1 year increase in age increases the odds to be impulsive by 6% (1-0.94).
+
+>>>For hours spent on playing computer games, when person spends 1-3 hours (4-6 hours,less than 1 hour) playing games he/she has 7% less (24% more,19% more) odds to be impulsive than person who do not play computer games (spends 0 hours on it). So, 1-3 hours of playing comp-games is not explaining him/her as being impulsive, but thoes who play 4-6 hour or less then 1 hour tend to be more impulsive than thoes who do spend no time on playing. So, some portion of comp-games a day (1-3 hours) does not characterize person as being impulsive, but over that portion or under it person tends to be more impulsive. They say golden middle!
+
+
+```{r}
+exp(coef(model_only_sig))
+```
+
+####Make predictions for 'one by one' significant model####
+
+```{r}
+pred_for_only_sig<-predict(model_only_sig,newdata = decision1,type = 'response')
+
+pr_class<-ifelse(pred_for_only_sig>0.5,"Reflective","Impulsive")
+
+
+conf_m<-addmargins(table(decision1$bias,pr_class))
+conf_m
+```
+
+Here accuracy of 71% is pretty good taking into account the threshold (0.67), but model is doing great for negative case and too poor for positive case.
+```{r}
+#Confusion matrix for LR 
+conf_m_full<-confusionMatrix(as.factor(pr_class),decision1$bias,positive = "Impulsive")
+conf_m_full
+```
+
+It appears that overall model is 71% accurate, when we include only the variables, which are one by one significant for predicting the bias.
+
+
+We can say for about 54% accuracy that on average 26 years old female, who spends 4-6 hours on social media and plays computer games 1-3 hours (on average) is impulsive.
+```{r}
+
+predict(model_only_sig,newdata = data.frame(age=mean(decision1$age),playcompG="1-3 hours",socMedia='4-6 hours',gender="Female"),type = 'response')
+```
+
+
+According to AIC model (backward selection) we can be about 84% sure that on average 26 years old male, who has master's degree is impulsive.
+```{r}
+decision1$education[4] # this is for category ="Master's degree"
+predict(model_step,newdata = data.frame(age=mean(decision1$age),gender="Male", education=decision1$education[4]),type = 'response')
+```
+
+According to AIC model (backward selection) we can be about 71% sure that on average 26 years old female with master's degree is impulsive.
+```{r}
+predict(model_step,newdata = data.frame(age=mean(decision1$age),gender="Female", education=decision1$education[4]),type = 'response')
+```
+
+####Looking for unusual values.
+
+From the ggplot provided at the beginning of the analysis, we can assume that there are outliers among the data provided. Let's check if they really are or not.
+
+Outlier is a data point whose response y doesn't follow the general trend.
+~If the point is outlier, it has high residaul(error).
+So, points, that have high residaul, are going to be outliers.
+
+#####Compute studentized residuals:show how many standard deviation away from the mean the given residual is.
+#####Let's first create a model, than compute studentized residuals, and if there is a point with studentized residual larger (in absolute value) than 3, it is definitely an outlier.
+
+```{r}
+stand_res<-rstandard(model_step)
+
+any(stand_res >3)
+```
+
+####Or we can compute for deleted residuals
+```{r}
+range<-qt(c(0.025,0.975),df=370-3-1)
+range
+
+```
+
+So according to deleted residuals we have outliers. Let's check whether they are influential or not.
+```{r}
+rst<-rstudent(model_step)
+any(rst>range)
+
+```
+
+Now we need to find out whether this points are also influential points.
+
+```{r}
+p<-3
+n<-370
+d<-2* sqrt((p+1)/(n-p-1))
+```
+
+
+So, we do have influential outliers.
+```{r}
+dffit<-dffits(model_step)
+any(dffit>d)
+```
+
+
+####Decision tree####
+
+Advantages: <br>
+>>>Decision trees implicitly perform variable screening or feature selection:  When we fit a decision tree to a training dataset, the top few nodes on which the tree is split are essentially the most important variables within the dataset and feature selection is completed automatically.<br>
+>>>Decision trees require relatively little effort from users for data preparation: To overcome scale differences between parameters - for example if we have a dataset which measures revenue in millions and loan age in years, say; this will require some form of normalization or scaling before we can fit a regression model and interpret the coefficients.  Such variable transformations are not required with  decision trees because the tree structure will remain the same with or without the transformation.<br>
+
+Also missing values will not prevent splitting the data for building trees.<br>
+
+Decision trees are also not sensitive to outliers since the splitting happens based on proportion of samples within the split ranges and not on absolute values.
+
+
+Making the model. We have somehow pruned the tree, as it was big (picture is too small) for making any visual detection of nodes.
+```{r echo=TRUE}
+dim(train_data)
+minbucket<-260*0.03
+minsplit<-260*0.1
+
+model_dt<-rpart(bias~.,data=train_data,method="class", minbucket=minbucket, minsplit=minsplit)
+```
+
+
+Plot shows that variable " age" is the most important when making decision about Impulsive/Reflective, as it is on the top (the next important one is considered education). We can see at the top the overall probability of a person to be impulsive. It shows the proportion of respondents that are impulsive(33% of respondents are impulsive). This node asks whether the age is more than or equal to 36. If yes, then we go down to the root node's left child node, which shows that for 9% of respondents people with age more than or equal to 36 are impulsive with the probability of 79%. 
+If age is less than 36, then we go down to the root node's right child node, which shows that for 91% of respondents age is less than 36 with the probability of 18% to be impulsive.If we go further with this path, it asks wether education of the respondent is college,high school or other degree, if yes, then (6% of respondents who are also under 36 fit to it) with probability of 0.4 (40%) person is impulsive. If no, then with the probability of 26% person is impulsive (85% of respondents who also have other degree of education than college, high school or other fit in here).
+And so on...
+```{r}
+rpart.plot(model_dt, extra= 106)
+
+```
+
+```{r}
+asRules(model_dt)
+```
+
+Train (73%) and test(70%) accuracies are close to each other, which means we can calm down, as we have no overfitting after pruning.
+```{r include=FALSE}
+pred_class<-predict(model_dt, train_data, type="class")
+pred_class[1:20]
+
+conf<-confusionMatrix(pred_class, train_data$bias, positive="Impulsive")
+conf
+
+pred_prob<-predict(model_dt, train_data)
+pred_prob[1:10,]
+
+```
+
+Accuracy of the model is pretty good (70%), model predicts way better for negative case.
+```{r include=FALSE}
+pred_class<-predict(model_dt, test_data, type="class")
+pred_class[1:20]
+
+conf<-confusionMatrix(pred_class, test_data$bias, positive="Impulsive")
+conf
+
+pred_prob<-predict(model_dt, test_data)
+pred_prob[1:10,]
+```
+
+Roc curve for the decision tree model.
+```{r}
+
+P_test<-prediction(pred_prob[,2], test_data$bias)
+
+perf<-performance(P_test, "tpr", "fpr")
+plot(perf)
+```
+
+AUC is moderate (not good and not too bad)
+```{r}
+AUC_model<-performance(P_test, "auc")@y.values
+AUC_model
+```
+
+
+###APPENDIX
+
+
+####Description of survey:
+ First tree questions known also cognitive Reflection Test (CRT test introduced by Frederick (2005)) are quick and simple tools to differentiate between more impulsive and more reflective decision-makers. Survey respondent who made only one mistake are defined to be reflective. If there is more than one mistake, responder is defined as impulsive. The original test was designed such that it must be completed during a minute. Because the survey is online and we cannot control for time, some limitations can exist in the data. 
+
+####Survey Questions:
+1) A bat and a ball together cost 110 cents. The bat costs 100 cents more than the ball. How much does the ball cost? (Impulsive answer: 10 cents; correct answer: 5 cents).
+I.	10 cents
+II.	5 cents
+
+2) If it takes 5 machines 5 minutes to make 5 widgets, how long would it take 100 machines to make 100 widgets? (Impulsive answer: 100 minutes; correct answer: 5 minutes). 
+I.	5 minutes
+II.	100 minutes
+
+3) In a lake, there is a patch of lily pads. Every day, the patch doubles in size. If it takes 48 days for the patch to cover the entire lake, how long would it take for the patch to cover half of the lake? (Impulsive answer: 24 days; correct answer: 47 days).
+I.	24 days
+II.	47 days
+
+There are a lot of studies that suggest there is relationship between music preference and personality type (The Correlation of Music Preference and Personality Christopher L. Knowles Parkland College,2013| Examining the Relationship between Music Preference and Personality Type. 2012 Department of Psychology DBS School of Arts ).Correlated personality types are written on a left side of the answer inside the brackets.
+
+4) What type of music you prefer?
+I.	Upbeat & Conventional: as defined by Pop, Soundtracks, Oldies (Agreeableness and Neuroticism
+II.	Intense & Rebellious: as defined by Rock, Alternative, Heavy Metal  (Extraversion and  Openness)
+III.Energetic & Rhythmic: as defined by Dance, Hip-hop, R&B (Extraversion)
+IV.	Reflective & Complex: as defined by Classical, Jazz, Opera (academic skills and Openness)
+
+Playing computer games is mostly associated with creativity and can catch the effect of specific personal trait. 
+
+5) Do you like computer games?
+I.	Yes
+II.	No
+
+The next question catches the magnitude of the computer games effect and presence of addiction.
+6) If yes for the previous  question: How many hours on average do you play computer games per day?
+I.	less than 1
+II.	1-3
+III.3-6
+IV.	7 and more
+
+In the 21st century almost everyone who has an access to internet uses social media. It is a part of our life and have big impact on our behavior. There are recent studies suggesting that social media has negative effect on brain. One of such effects is inability to thinking independently. 
+7) How many hours do you spend on social media?
+I.	less than 1
+II.	1-3
+III.4-6
+V.	7-9
+VI.	10 and more
+
+*Age, gender, education and salary* are included as a demographic explanatory variables.
+8) Age
+9) Education
+I.	High School
+II.	Bachelor's degree
+III.Master's degree
+IV.	PhD
+V.	College
+VI.	Other
+
+10) Salary
+I.	Less than $150
+II.	$151-$250
+III.$251-$600
+IV.	$601-$1000
+V.	$1001-$2000
+VI.	$2001-$3000
+VII.$3001 and more
+VIII.I don't work
+
+11) Gender
+There is no studies suggesting that falling in love has constant effect on brain, personal trait or decision making .However, we are curious about the relationship between the number of times a person fell in love and decision making. Because falling in love frequently can be considered impulsive behavior as well. 
+
+12) Have you fallen in love?
+I.	Yes
+II.	No
+
+13) If yes to the previous question, then:  How many times have you fallen in love?
+I.	1
+II.	2
+III.3
+IV.	4 
+VII.5 and more
+
+*The dependent variable is binary variable showing whether respondent is reflective or impulsive based on the test results. The rest of variables are explanatory the performance of their significance in the model we aim to detect in our analysis. To estimate the model we are going to run Logistic regression and Decision Tree.*
+
+
+
+
+
+
+***During our analysis we encountered with the problem of imbalanced data.***
+
+####Challenges
+Main problems imposed by data with unequal class distribution:
+1.	The machine problem: Machine learning (ML) algorithms are built to minimize errors. Since the probability of instances belonging to the majority class is significantly high in imbalanced data set, the algorithms are much more likely to classify new observations to the majority class. 
+2.	The intrinsic problem: In real life, the cost of False Negative is usually much larger than False Positive, yet ML algorithms penalize both at a similar weight.
+
+####Solutions
+There has been two different approaches to addressing imbalanced data: algorithm-level and data-level approach.<br>
+***Algorithm-level approach:*** As mentioned above, ML algorithms penalize False Positives and False Negatives equally. A way to counter that is to modify the algorithm itself to boost predictive performance on minority class. This can be executed through either recognition-based learning or cost-sensitive learning. Feel free to check Drummond & Holte (2003); Elkan (2001); and Manevitz & Yousef (2001) .
+
+***Data-level approach:*** This consists of re-sampling the data in order to mitigate the effect caused by class imbalance. The data approach has gained popular acceptance among practitioners as it is more flexible and allows for the use of latest algorithms. The two most common techniques are over-sampling and under-sampling.
+How to balance data for modeling
+The basic theoretical concepts behind over- and under-sampling are very simple:
+
+>>>	With under-sampling, we randomly select a subset of samples from the class with more instances to match the number of samples coming from each class. The main disadvantage of under-sampling is that we lose potentially relevant information from the left-out samples.
+
+>>>	With oversampling, we randomly duplicate samples from the class with fewer instances or we generate additional instances based on the data that we have, so as to match the number of samples in each class. While we avoid losing information with this approach, we also run the risk of overfitting our model as we are more likely to get the same samples in the training and in the test data, i.e. the test data is no longer independent from training data. This would lead to an overestimation of our model's performance and generalizability.
+
+####How to do
+In reality though, we should not simply perform over- or under-sampling on our training data and then run the model. We need to account for cross-validation and perform over- or under-sampling on each fold independently to get an honest estimate of model performance!
+Besides over- and under-sampling, there are hybrid methods that combine under-sampling with the generation of additional data. Two of the most popular are ROSE and SMOTE.
+
+From Nicola Lunardon, Giovanna Menardi and Nicola Torelli's "ROSE: A Package for Binary Imbalanced Learning" (R Journal, 2014, Vol. 6 Issue 1, p. 79): "The ROSE package provides functions to deal with binary classification problems in the presence of imbalanced classes. Artificial balanced samples are generated according to a smoothed bootstrap approach and allow for aiding both the phases of estimation and accuracy evaluation of a binary classifier in the presence of a rare class. Functions that implement more traditional remedies for the class imbalance and different metrics to evaluate accuracy are also provided. These are estimated by holdout, bootstrap, or cross-validation methods."
+
+
+####STATISTICAL TECHNIQUES FOR REGRESSION MODELS
+Various methods have been proposed for entering variables into a multivariate logistic regression model. In the "Enter" method (which is the default option on many statistical programs), all the input variables are entered simultaneously. Alternative methods include "forward stepwise" regression (where various factors are introduced one by one, beginning with the strongest, and stopping when addition of the next factor does not significantly improve prediction), "backward stepwise" (where all the factors are initially introduced and then various factors are withdrawn one by one, till the overall prediction does not deteriorate), or bidirectional (a mix of the forward and backward methods).
+Choosing the right predictor variables
+The key to a successful logistic regression model is to choose the correct variables to enter into the model. While it is tempting to include as many input variables as possible, this can dilute true associations and lead to large standard errors with wide and imprecise confidence intervals, or, conversely, identify spurious associations. The conventional technique is to first run the univariate analyses (i.e., relation of the outcome with each predictor, one at a time) and then use only those variables which meet a preset cutoff for significance to run a multivariable model. This cutoff is often more liberal than the conventional cutoff for significance (e.g., P < 0.10, instead of the usual P < 0.05) since its purpose is to identify potential predictor variables rather than to test a hypothesis. In addition, one needs to consider the scientific plausibility and the clinical meaningfulness of the association. For instance, univariate analyses for risk factors for myocardial infarction may show that gray hair and baldness are associated with the occurrence of disease. However, these associations are scientifically implausible (and are due to association of these findings with older age and male sex, respectively) and hence must not be entered into a logistic regression analysis.
+
+######We have applied all the above mentioned techniques, except "Forward selection" and "ROSE" (the latter one caused some problems).
+
+***When making our models we detected multicollinearity among the data when including variables answering questions: "Have the person ever fallen in love" and "How many times he/she has ", as the first questions already manages the output of the second, because if the answer is "No" then second question never shows to him/her. The same thing is about the questions: "Do you love computer games" and "How long you play them a day (in hours)". As second question for each of the mentioned pairs also contain the output (answer) of the first question, we've taken variables corresponding to that questions ("hmtLove", "playcompG").***
+
+
+
+
+
+
+
+
